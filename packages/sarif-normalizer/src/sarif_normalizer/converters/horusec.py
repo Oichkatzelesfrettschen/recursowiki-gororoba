@@ -64,12 +64,22 @@ class HorusecConverter(BaseConverter):
         target_path:
             Root of the analysed project.
         """
+        stripped = raw_output.strip()
+        if not stripped:
+            run = make_run(
+                tool_name="horusec",
+                tool_version="unknown",
+                results=[],
+                rules=[],
+            )
+            return make_sarif_log(runs=[run])
+
         try:
-            data: dict[str, Any] = json.loads(raw_output)
+            data: dict[str, Any] = json.loads(stripped)
         except json.JSONDecodeError as exc:
             raise ValueError(f"Horusec output is not valid JSON: {exc}") from exc
 
-        analysis_vulns: list[dict[str, Any]] = data.get("analysisVulnerabilities", [])
+        analysis_vulns: list[dict[str, Any]] = data.get("analysisVulnerabilities") or []
         horusec_version: str = data.get("version", "unknown")
 
         results: list[dict[str, Any]] = []

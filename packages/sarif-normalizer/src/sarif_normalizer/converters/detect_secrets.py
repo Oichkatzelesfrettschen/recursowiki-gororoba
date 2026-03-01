@@ -50,8 +50,19 @@ class DetectSecretsConverter(BaseConverter):
         target_path:
             Root of the analysed project.
         """
+        stripped = raw_output.strip()
+        if not stripped:
+            # Empty output means no secrets found -- return a clean SARIF log.
+            run = make_run(
+                tool_name="detect-secrets",
+                tool_version="unknown",
+                results=[],
+                rules=[],
+            )
+            return make_sarif_log(runs=[run])
+
         try:
-            data: dict[str, Any] = json.loads(raw_output)
+            data: dict[str, Any] = json.loads(stripped)
         except json.JSONDecodeError as exc:
             raise ValueError(f"detect-secrets output is not valid JSON: {exc}") from exc
 

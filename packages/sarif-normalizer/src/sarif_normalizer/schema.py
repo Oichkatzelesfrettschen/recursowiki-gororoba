@@ -21,6 +21,22 @@ SARIF_SCHEMA_URI: str = (
     "sarif-2.1/schema/sarif-schema-2.1.0.json"
 )
 
+# Known-good SARIF v2.1.0 schema URIs used by different tools.
+# All of these refer to the same schema; tools just disagree on canonical URL.
+SARIF_KNOWN_SCHEMA_URIS: frozenset[str] = frozenset({
+    SARIF_SCHEMA_URI,
+    "https://json.schemastore.org/sarif-2.1.0.json",
+    "https://json.schemastore.org/sarif-2.1.0-rtm.6.json",
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/"
+    "schemas/sarif-schema-2.1.0.json",
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/cos02/schemas/"
+    "sarif-schema-2.1.0.json",
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/schemas/"
+    "sarif-schema-2.1.0.json",
+    "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
+    "Schemata/sarif-schema-2.1.0.json",
+})
+
 SARIF_LEVELS: tuple[str, ...] = ("error", "warning", "note", "none")
 
 # ---------------------------------------------------------------------------

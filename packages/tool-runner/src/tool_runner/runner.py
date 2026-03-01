@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,10 +55,22 @@ class ToolRunner:
         extension = ".sarif" if tool.sarif_native else ".json"
         output_file = str(output_path / f"{tool.name}{extension}")
 
+        # Some tools (e.g. checkov) write output to a directory rather than a
+        # single file.  Provide both {output} and {output_dir} as template
+        # variables; tools that need a directory use {output_dir}.
+        tool_output_dir = str(output_path / f"{tool.name}_out")
+        os.makedirs(tool_output_dir, exist_ok=True)
+
         command_str = tool.command_template.format(
             target=target_path,
             output=output_file,
+            output_dir=tool_output_dir,
         )
+
+        # For pip-installable tools, wrap with `uv run --with` to guarantee
+        # the correct package (including extras like bandit[sarif]) is
+        # available in an ephemeral environment.
+        command_str = self._maybe_wrap_with_uv(tool, command_str)
 
         logger.info("Running %s: %s", tool.name, command_str)
 
@@ -165,6 +178,14 @@ class ToolRunner:
         # detected" (e.g. bandit returns 1 when issues are found).  We
         # consider the run successful if the output file was actually written.
         sarif_produced = Path(output_file).is_file()
+
+        # Some tools (checkov) write to a directory with a fixed filename
+        # like results_sarif.sarif.  Detect and relocate to {output_file}.
+        if not sarif_produced:
+            sarif_produced = self._collect_dir_output(
+                tool_output_dir, output_file,
+            )
+
         success = sarif_produced or return_code == 0
 
         logger.info(
@@ -184,6 +205,57 @@ class ToolRunner:
             return_code=return_code,
             duration_seconds=elapsed,
         )
+
+    @staticmethod
+    def _collect_dir_output(tool_output_dir: str, output_file: str) -> bool:
+        """Check *tool_output_dir* for SARIF/JSON files and move the first
+        match to *output_file*.
+
+        Returns ``True`` if a file was found and relocated.
+        """
+        dir_path = Path(tool_output_dir)
+        if not dir_path.is_dir():
+            return False
+
+        # Look for common output file names written by tools that take a
+        # directory argument (e.g. checkov writes results_sarif.sarif).
+        for candidate in sorted(dir_path.iterdir()):
+            if candidate.is_file() and candidate.suffix in (".sarif", ".json"):
+                shutil.move(str(candidate), output_file)
+                logger.info(
+                    "Relocated %s -> %s", candidate.name, output_file,
+                )
+                return True
+        return False
+
+    @staticmethod
+    def _maybe_wrap_with_uv(tool: ToolDefinition, command_str: str) -> str:
+        """Wrap pip-installable tool commands with ``uv run --with`` when
+        the install package includes extras (e.g. ``bandit[sarif]``) or
+        the tool binary is not found on PATH.
+
+        This ensures tools run in an ephemeral uv environment with the
+        correct dependencies, without polluting the system.
+        """
+        if tool.install_method != "pip":
+            return command_str
+
+        # Skip wrapping if uv itself is not available.
+        if shutil.which("uv") is None:
+            return command_str
+
+        # Determine the binary name (first token of the command).
+        binary = command_str.split()[0] if command_str else ""
+
+        has_extras = "[" in tool.install_package
+        binary_missing = binary and shutil.which(binary) is None
+
+        if has_extras or binary_missing:
+            # Shell redirects (>) require shell mode, so we must preserve the
+            # full command string rather than splitting it.
+            return f"uv run --with {tool.install_package} -- {command_str}"
+
+        return command_str
 
     async def run_tools(
         self,

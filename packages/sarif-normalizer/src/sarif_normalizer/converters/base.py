@@ -6,7 +6,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
-from sarif_normalizer.schema import SARIF_SCHEMA_URI, SARIF_VERSION
+from sarif_normalizer.schema import SARIF_KNOWN_SCHEMA_URIS, SARIF_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class BaseConverter(ABC):
             return False
 
         schema = sarif_doc.get("$schema", "")
-        if schema and schema != SARIF_SCHEMA_URI:
+        if schema and schema not in SARIF_KNOWN_SCHEMA_URIS:
             logger.warning("Unexpected $schema URI: %s", schema)
 
         runs = sarif_doc.get("runs")

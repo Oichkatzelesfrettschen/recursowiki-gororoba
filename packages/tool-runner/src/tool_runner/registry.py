@@ -107,9 +107,9 @@ _SECURITY_TOOLS: list[ToolDefinition] = [
         install_method="binary",
         install_package="horusec",
         command_template=(
-            "horusec start -p {target} -o sarif -O {output} --disable-docker"
+            "horusec start -p {target} -o json -O {output} --disable-docker"
         ),
-        sarif_native=True,
+        sarif_native=False,
         languages=["*"],
         timeout=600,
     ),
@@ -227,7 +227,7 @@ _SECRETS_TOOLS: list[ToolDefinition] = [
         install_method="pip",
         install_package="checkov",
         command_template=(
-            "checkov -d {target} --output sarif --output-file-path {output}"
+            "checkov -d {target} -o sarif --output-file-path {output_dir}"
         ),
         sarif_native=True,
         languages=["terraform", "yaml", "json", "docker"],
@@ -271,7 +271,7 @@ _SECRETS_TOOLS: list[ToolDefinition] = [
         category="secrets",
         install_method="pip",
         install_package="detect-secrets",
-        command_template="detect-secrets scan {target} --json > {output}",
+        command_template="detect-secrets scan {target} --all-files > {output}",
         sarif_native=False,
         languages=["*"],
     ),

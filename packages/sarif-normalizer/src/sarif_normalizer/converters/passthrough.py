@@ -38,6 +38,8 @@ NATIVE_SARIF_TOOLS: frozenset[str] = frozenset(
         "eslint",
     }
 )
+# horusec intentionally excluded: its SARIF output is non-standard,
+# so it routes through the dedicated HorusecConverter instead.
 
 # Human-readable category labels for enrichment.
 _TOOL_CATEGORIES: dict[str, str] = {
