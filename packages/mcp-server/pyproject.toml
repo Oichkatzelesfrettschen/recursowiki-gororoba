@@ -1,0 +1,25 @@
+[project]
+name = "gororoba-mcp"
+version = "0.1.0"
+description = "MCP server exposing code analysis tools to CLI LLMs (Claude Code, Gemini CLI, Codex)"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "langgraph-orchestrator",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[project.scripts]
+gororoba-mcp = "gororoba_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gororoba_mcp"]

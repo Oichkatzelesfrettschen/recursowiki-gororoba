@@ -17,9 +17,151 @@ import requests
 from requests.exceptions import RequestException
 
 from api.tools.embedder import get_embedder
+import pathspec
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+# --- Path Validation (CWE-22 mitigation) ---
+
+def validate_local_path(user_path: str, allowed_root: str | None = None) -> str:
+    """Resolve and validate a local path to prevent directory traversal attacks.
+
+    Args:
+        user_path: The user-supplied path to validate.
+        allowed_root: If provided, the resolved path must be under this root.
+            When None, only basic resolution and existence checks are performed.
+
+    Returns:
+        The resolved, absolute path.
+
+    Raises:
+        ValueError: If the path escapes the allowed root or does not exist.
+    """
+    resolved = os.path.realpath(os.path.abspath(user_path))
+
+    if allowed_root is not None:
+        root = os.path.realpath(os.path.abspath(allowed_root))
+        if not (resolved == root or resolved.startswith(root + os.sep)):
+            raise ValueError(f"Path traversal blocked: {user_path}")
+
+    if not os.path.isdir(resolved):
+        raise ValueError(f"Path does not exist or is not a directory: {user_path}")
+
+    return resolved
+
+
+def _load_gitignore_spec(directory: str) -> pathspec.PathSpec | None:
+    """Load .gitignore patterns from a directory, returning a PathSpec or None."""
+    gitignore_path = os.path.join(directory, ".gitignore")
+    if not os.path.isfile(gitignore_path):
+        return None
+    try:
+        with open(gitignore_path, "r", encoding="utf-8") as f:
+            return pathspec.PathSpec.from_lines("gitwildmatch", f)
+    except Exception as e:
+        logger.warning(f"Failed to parse .gitignore at {gitignore_path}: {e}")
+        return None
+
+
+def read_local_directory(
+    path: str,
+    respect_gitignore: bool = True,
+    extra_exclude_dirs: list[str] | None = None,
+) -> list[dict]:
+    """Read files from a local directory with .gitignore compliance.
+
+    This is the primary entry point for local ingestion. It walks the directory
+    tree, respects .gitignore rules at each level, and returns file metadata
+    suitable for the existing document pipeline.
+
+    Args:
+        path: Absolute path to the local directory to analyze.
+        respect_gitignore: Whether to honor .gitignore files found in the tree.
+        extra_exclude_dirs: Additional directory names to skip (e.g. node_modules).
+
+    Returns:
+        A list of dicts with keys: file_path (relative), absolute_path, content.
+    """
+    path = validate_local_path(path)
+    default_skip = {
+        ".git", ".svn", ".hg", "__pycache__", "node_modules",
+        ".venv", "venv", ".tox", ".eggs", "dist", "build",
+    }
+    if extra_exclude_dirs:
+        default_skip.update(extra_exclude_dirs)
+
+    # Collect .gitignore specs per directory for hierarchical matching
+    gitignore_specs: list[pathspec.PathSpec] = []
+    root_spec = _load_gitignore_spec(path) if respect_gitignore else None
+    if root_spec is not None:
+        gitignore_specs.append(root_spec)
+
+    results: list[dict] = []
+
+    for dirpath, dirnames, filenames in os.walk(path):
+        # Load .gitignore at this level
+        if respect_gitignore and dirpath != path:
+            sub_spec = _load_gitignore_spec(dirpath)
+            if sub_spec is not None:
+                gitignore_specs.append(sub_spec)
+
+        # Prune excluded directories in-place
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in default_skip and not d.startswith(".")
+        ]
+
+        # Also prune directories matched by gitignore
+        if gitignore_specs:
+            kept_dirs = []
+            for d in dirnames:
+                rel_dir = os.path.relpath(os.path.join(dirpath, d), path) + "/"
+                if not any(spec.match_file(rel_dir) for spec in gitignore_specs):
+                    kept_dirs.append(d)
+            dirnames[:] = kept_dirs
+
+        for filename in filenames:
+            if filename.startswith("."):
+                continue
+            abs_file = os.path.join(dirpath, filename)
+            rel_file = os.path.relpath(abs_file, path)
+
+            # Check gitignore
+            if gitignore_specs and any(
+                spec.match_file(rel_file) for spec in gitignore_specs
+            ):
+                continue
+
+            # Skip binary files by checking extension
+            _, ext = os.path.splitext(filename)
+            binary_exts = {
+                ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg",
+                ".woff", ".woff2", ".ttf", ".eot", ".otf",
+                ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar",
+                ".exe", ".dll", ".so", ".dylib", ".o", ".obj",
+                ".pyc", ".pyo", ".class", ".jar", ".war",
+                ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+                ".mp3", ".mp4", ".wav", ".avi", ".mov",
+                ".sqlite", ".db", ".pkl",
+            }
+            if ext.lower() in binary_exts:
+                continue
+
+            try:
+                with open(abs_file, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+                results.append({
+                    "file_path": rel_file,
+                    "absolute_path": abs_file,
+                    "content": content,
+                })
+            except Exception as e:
+                logger.warning(f"Could not read {abs_file}: {e}")
+
+    logger.info(f"read_local_directory: found {len(results)} files in {path}")
+    return results
 
 # Maximum token limit for OpenAI embedding models
 MAX_EMBEDDING_TOKENS = 8192

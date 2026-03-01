@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "gororoba": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "packages/mcp-server",
+        "gororoba-mcp"
+      ],
+      "env": {
+        "GOROROBA_TARGET": "."
+      }
+    }
+  }
+}

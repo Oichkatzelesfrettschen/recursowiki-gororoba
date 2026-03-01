@@ -23,15 +23,26 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN NODE_ENV=production npm run build
 
 FROM python:3.11-slim AS py_deps
-WORKDIR /api
-COPY api/pyproject.toml .
-COPY api/poetry.lock .
-RUN python -m pip install poetry==2.0.1 --no-cache-dir && \
-    poetry config virtualenvs.create true --local && \
-    poetry config virtualenvs.in-project true --local && \
-    poetry config virtualenvs.options.always-copy --local true && \
-    POETRY_MAX_WORKERS=10 poetry install --no-interaction --no-ansi --only main && \
-    poetry cache clear --all .
+WORKDIR /build
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+COPY pyproject.toml uv.lock ./
+COPY api/pyproject.toml api/pyproject.toml
+COPY packages/tool-runner/pyproject.toml packages/tool-runner/pyproject.toml
+COPY packages/sarif-normalizer/pyproject.toml packages/sarif-normalizer/pyproject.toml
+COPY packages/mcp-server/pyproject.toml packages/mcp-server/pyproject.toml
+COPY packages/langgraph-orchestrator/pyproject.toml packages/langgraph-orchestrator/pyproject.toml
+# Create minimal package stubs so uv can resolve workspace members
+RUN mkdir -p api packages/tool-runner/src/tool_runner \
+    packages/sarif-normalizer/src/sarif_normalizer \
+    packages/mcp-server/src/gororoba_mcp \
+    packages/langgraph-orchestrator/src/orchestrator && \
+    touch api/__init__.py \
+    packages/tool-runner/src/tool_runner/__init__.py \
+    packages/sarif-normalizer/src/sarif_normalizer/__init__.py \
+    packages/mcp-server/src/gororoba_mcp/__init__.py \
+    packages/langgraph-orchestrator/src/orchestrator/__init__.py
+RUN uv sync --frozen --no-dev --no-editable
 
 # Use Python 3.11 as final image
 FROM python:3.11-slim
@@ -67,9 +78,10 @@ RUN if [ -n "${CUSTOM_CERT_DIR}" ]; then \
 
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy Python dependencies
-COPY --from=py_deps /api/.venv /opt/venv
+# Copy Python dependencies from uv sync
+COPY --from=py_deps /build/.venv /opt/venv
 COPY api/ ./api/
+COPY packages/ ./packages/
 
 # Copy Node app
 COPY --from=node_builder /app/public ./public

@@ -537,6 +537,290 @@ async def delete_wiki_cache(
         logger.warning(f"Wiki cache not found, cannot delete: {cache_path}")
         raise HTTPException(status_code=404, detail="Wiki cache not found")
 
+# --- Local Analysis Endpoints ---
+
+class LocalAnalyzeRequest(BaseModel):
+    """Request body for local directory analysis."""
+    path: str = Field(..., description="Absolute path to the local directory to analyze")
+    respect_gitignore: bool = Field(True, description="Whether to honor .gitignore files")
+    extra_exclude_dirs: Optional[List[str]] = Field(None, description="Additional directories to skip")
+
+
+class LocalAnalyzeResponse(BaseModel):
+    """Response for local directory analysis."""
+    file_count: int
+    files: List[str]
+    path: str
+
+
+@app.post("/local/analyze", response_model=LocalAnalyzeResponse)
+async def local_analyze(request: LocalAnalyzeRequest):
+    """Analyze a local directory, returning discovered files with .gitignore compliance.
+
+    This endpoint reads files from a local path, respecting .gitignore rules,
+    and returns the file list. It can be used as a precursor to wiki generation
+    or code analysis on local repositories.
+    """
+    from api.data_pipeline import validate_local_path, read_local_directory
+
+    # Validate the path (CWE-22 mitigation).
+    # In production, set GOROROBA_ALLOWED_ROOT to restrict which directories
+    # can be analyzed. When unset, any existing directory is allowed.
+    allowed_root = os.environ.get("GOROROBA_ALLOWED_ROOT")
+    try:
+        validated_path = validate_local_path(request.path, allowed_root=allowed_root)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        file_entries = await asyncio.to_thread(
+            read_local_directory,
+            validated_path,
+            respect_gitignore=request.respect_gitignore,
+            extra_exclude_dirs=request.extra_exclude_dirs,
+        )
+        file_paths = [entry["file_path"] for entry in file_entries]
+        return LocalAnalyzeResponse(
+            file_count=len(file_paths),
+            files=file_paths,
+            path=validated_path,
+        )
+    except Exception as e:
+        logger.error(f"Error analyzing local directory {request.path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+
+# --- Code Analysis Pipeline Endpoints ---
+
+# In-memory store for analysis runs (persisted to disk as well)
+_analysis_runs: Dict[str, Dict[str, Any]] = {}
+
+ANALYSIS_DIR = os.path.join(get_adalflow_default_root_path(), "analysis")
+os.makedirs(ANALYSIS_DIR, exist_ok=True)
+
+
+class AnalyzeRequest(BaseModel):
+    """Request body for triggering code analysis."""
+    path: str = Field(..., description="Absolute path to the directory to analyze")
+    tools: Optional[List[str]] = Field(None, description="Specific tools to run (omit for auto)")
+    languages: Optional[List[str]] = Field(None, description="Languages to restrict to (omit for auto)")
+
+
+class AnalyzeStatusResponse(BaseModel):
+    run_id: str
+    status: str  # "running", "complete", "error"
+    progress: float = 0.0
+    errors: Optional[List[str]] = None
+
+
+@app.post("/api/analyze")
+async def trigger_analysis(request: AnalyzeRequest):
+    """Trigger the full code analysis pipeline on a directory."""
+    import uuid
+
+    # Validate path
+    allowed_root = os.environ.get("GOROROBA_ALLOWED_ROOT")
+    try:
+        from api.data_pipeline import validate_local_path
+        validated = validate_local_path(request.path, allowed_root=allowed_root)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    run_id = uuid.uuid4().hex[:12]
+    _analysis_runs[run_id] = {
+        "status": "running",
+        "progress": 0.0,
+        "path": validated,
+        "errors": [],
+    }
+
+    # Run analysis in background thread to not block the event loop
+    async def _run_analysis():
+        try:
+            from orchestrator.graph import run_analysis
+            result = await asyncio.to_thread(
+                run_analysis,
+                target_path=validated,
+                tools=request.tools,
+                languages=request.languages,
+                run_id=run_id,
+            )
+            _analysis_runs[run_id] = {
+                "status": "complete",
+                "progress": 1.0,
+                "path": validated,
+                "result": result,
+                "errors": result.get("errors", []),
+            }
+
+            # Persist SARIF to disk
+            sarif = result.get("unified_sarif", {})
+            run_dir = os.path.join(ANALYSIS_DIR, run_id)
+            os.makedirs(run_dir, exist_ok=True)
+            sarif_path = os.path.join(run_dir, "unified.sarif.json")
+            with open(sarif_path, "w", encoding="utf-8") as f:
+                json.dump(sarif, f, indent=2)
+
+        except Exception as e:
+            logger.error(f"Analysis run {run_id} failed: {e}")
+            _analysis_runs[run_id] = {
+                "status": "error",
+                "progress": 0.0,
+                "path": validated,
+                "errors": [str(e)],
+            }
+
+    asyncio.create_task(_run_analysis())
+
+    return {"run_id": run_id, "status": "running"}
+
+
+@app.get("/api/analyze/{run_id}", response_model=AnalyzeStatusResponse)
+async def get_analysis_status(run_id: str):
+    """Poll analysis status."""
+    run = _analysis_runs.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return AnalyzeStatusResponse(
+        run_id=run_id,
+        status=run["status"],
+        progress=run.get("progress", 0.0),
+        errors=run.get("errors"),
+    )
+
+
+@app.get("/api/analyze/{run_id}/sarif")
+async def get_analysis_sarif(run_id: str):
+    """Get the unified SARIF document for a completed analysis."""
+    run = _analysis_runs.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    if run["status"] != "complete":
+        raise HTTPException(status_code=409, detail=f"Analysis not complete (status: {run['status']})")
+    result = run.get("result", {})
+    return result.get("unified_sarif", {})
+
+
+@app.get("/api/analyze/{run_id}/findings")
+async def get_analysis_findings(
+    run_id: str,
+    severity: Optional[str] = Query(None, description="Filter by severity: error, warning, note"),
+    file: Optional[str] = Query(None, description="Filter by file path substring"),
+    tool: Optional[str] = Query(None, description="Filter by tool name"),
+    limit: int = Query(50, description="Max findings to return"),
+):
+    """Query findings from a completed analysis."""
+    run = _analysis_runs.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    if run["status"] != "complete":
+        raise HTTPException(status_code=409, detail=f"Analysis not complete (status: {run['status']})")
+
+    sarif = run.get("result", {}).get("unified_sarif", {})
+    findings = []
+    for sarif_run in sarif.get("runs", []):
+        tool_name = sarif_run.get("tool", {}).get("driver", {}).get("name", "")
+        if tool and tool_name != tool:
+            continue
+        for res in sarif_run.get("results", []):
+            if severity and res.get("level") != severity:
+                continue
+            file_path = ""
+            line = 0
+            for loc in res.get("locations", []):
+                ph = loc.get("physicalLocation", {})
+                file_path = ph.get("artifactLocation", {}).get("uri", "")
+                line = ph.get("region", {}).get("startLine", 0)
+                break
+            if file and file not in file_path:
+                continue
+            findings.append({
+                "tool": tool_name,
+                "rule_id": res.get("ruleId", ""),
+                "level": res.get("level", "warning"),
+                "file": file_path,
+                "line": line,
+                "message": res.get("message", {}).get("text", ""),
+            })
+            if len(findings) >= limit:
+                break
+        if len(findings) >= limit:
+            break
+
+    return {"findings": findings, "count": len(findings)}
+
+
+@app.get("/api/analyze/{run_id}/metrics")
+async def get_analysis_metrics(run_id: str):
+    """Get aggregate analysis metrics."""
+    run = _analysis_runs.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    if run["status"] != "complete":
+        raise HTTPException(status_code=409, detail=f"Analysis not complete (status: {run['status']})")
+    return run.get("result", {}).get("metrics", {})
+
+
+@app.get("/api/analyze/{run_id}/topology")
+async def get_analysis_topology(run_id: str):
+    """Get the dependency topology graph."""
+    run = _analysis_runs.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    if run["status"] != "complete":
+        raise HTTPException(status_code=409, detail=f"Analysis not complete (status: {run['status']})")
+    return run.get("result", {}).get("blueprint_topology", {})
+
+
+@app.post("/api/analyze/{run_id}/explain")
+async def explain_analysis_finding(
+    run_id: str,
+    body: Dict[str, Any],
+):
+    """Get a human-readable explanation of a specific finding."""
+    run = _analysis_runs.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    if run["status"] != "complete":
+        raise HTTPException(status_code=409, detail=f"Analysis not complete (status: {run['status']})")
+
+    finding_id = body.get("finding_id")
+    if finding_id is None:
+        raise HTTPException(status_code=400, detail="finding_id is required")
+
+    sarif = run.get("result", {}).get("unified_sarif", {})
+    idx = 0
+    for sarif_run in sarif.get("runs", []):
+        tool_name = sarif_run.get("tool", {}).get("driver", {}).get("name", "")
+        rules = {
+            r["id"]: r
+            for r in sarif_run.get("tool", {}).get("driver", {}).get("rules", [])
+        }
+        for res in sarif_run.get("results", []):
+            if str(idx) == str(finding_id):
+                rule_id = res.get("ruleId", "unknown")
+                rule_info = rules.get(rule_id, {})
+                explanation = {
+                    "tool": tool_name,
+                    "rule_id": rule_id,
+                    "level": res.get("level", "warning"),
+                    "message": res.get("message", {}).get("text", ""),
+                    "description": rule_info.get("fullDescription", {}).get("text", ""),
+                    "help_uri": rule_info.get("helpUri", ""),
+                }
+                locs = res.get("locations", [])
+                if locs:
+                    ph = locs[0].get("physicalLocation", {})
+                    explanation["location"] = {
+                        "file": ph.get("artifactLocation", {}).get("uri", ""),
+                        "line": ph.get("region", {}).get("startLine"),
+                    }
+                return {"explanation": explanation}
+            idx += 1
+
+    raise HTTPException(status_code=404, detail=f"Finding not found: {finding_id}")
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint for Docker and monitoring"""
