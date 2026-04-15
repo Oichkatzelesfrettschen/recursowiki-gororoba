@@ -56,6 +56,11 @@ _EXTENSION_MAP: dict[str, str] = {
     ".swift": "swift",
     # Solidity
     ".sol": "solidity",
+    # LaTeX
+    ".tex": "latex",
+    ".sty": "latex",
+    ".cls": "latex",
+    ".bib": "latex",
     # Infrastructure / Config
     ".tf": "terraform",
     ".hcl": "terraform",
@@ -77,6 +82,10 @@ _FILENAME_MAP: dict[str, str] = {
     "Containerfile": "docker",
     "Makefile": "make",
     "CMakeLists.txt": "cpp",
+    ".bashrc": "shell",
+    ".zshrc": "shell",
+    ".profile": "shell",
+    ".bash_profile": "shell",
 }
 
 # ---------------------------------------------------------------------------

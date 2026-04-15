@@ -1,0 +1,48 @@
+[metadata]
+schema_version = 1
+
+# pip-based tools (ruff, bandit, semgrep, checkov, etc.) are managed by
+# `uv run --with {package}` and not listed here.
+
+[tools.trivy]
+version = "0.58.2"
+method = "binary"
+url = "https://github.com/aquasecurity/trivy/releases/download/v{version}/trivy_{version}_Linux-64bit.tar.gz"
+binary = "trivy"
+
+[tools.kics]
+version = "2.1.19"
+method = "binary"
+url = "https://github.com/Checkmarx/kics/releases/download/v{version}/kics_{version}_linux_amd64.tar.gz"
+binary = "kics"
+
+[tools.horusec]
+version = "2.9.0-beta.3"
+method = "script"
+script = "curl -fsSL https://raw.githubusercontent.com/ZUP-Products/horusec/main/deployments/scripts/install.sh | bash -s latest"
+binary = "horusec"
+
+[tools.trufflehog]
+version = "3.88.4"
+method = "binary"
+url = "https://github.com/trufflesecurity/trufflehog/releases/download/v{version}/trufflehog_{version}_linux_amd64.tar.gz"
+binary = "trufflehog"
+
+[tools.gosec]
+version = "2.21.4"
+method = "binary"
+url = "https://github.com/securego/gosec/releases/download/v{version}/gosec_{version}_linux_amd64.tar.gz"
+binary = "gosec"
+
+[tools.cppcheck]
+version = "system"
+method = "apt"
+package = "cppcheck"
+binary = "cppcheck"
+
+[tools.pmd]
+version = "7.9.0"
+method = "binary"
+url = "https://github.com/pmd/pmd/releases/download/pmd_releases%2F{version}/pmd-dist-{version}-bin.zip"
+binary = "pmd"
+requires_apt = ["default-jre-headless"]

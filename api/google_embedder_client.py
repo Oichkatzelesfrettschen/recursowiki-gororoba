@@ -9,10 +9,10 @@ from adalflow.core.model_client import ModelClient
 from adalflow.core.types import ModelType, EmbedderOutput
 
 try:
-    import google.generativeai as genai
-    from google.generativeai.types.text_types import EmbeddingDict, BatchEmbeddingDict
+    from google import genai
+    from google.genai import types as genai_types
 except ImportError:
-    raise ImportError("google-generativeai is required. Install it with 'pip install google-generativeai'")
+    raise ImportError("google-genai is required. Install it with 'pip install google-genai'")
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +64,7 @@ class GoogleEmbedderClient(ModelClient):
         super().__init__()
         self._api_key = api_key
         self._env_api_key_name = env_api_key_name
+        self._client: genai.Client | None = None
         self._initialize_client()
 
     def _initialize_client(self):
@@ -73,7 +74,7 @@ class GoogleEmbedderClient(ModelClient):
             raise ValueError(
                 f"Environment variable {self._env_api_key_name} must be set"
             )
-        genai.configure(api_key=api_key)
+        self._client = genai.Client(api_key=api_key)
 
     def parse_embedding_response(self, response) -> EmbedderOutput:
         """Parse Google AI embedding response to EmbedderOutput format.
@@ -233,19 +234,28 @@ class GoogleEmbedderClient(ModelClient):
         log.info("Google AI Embeddings call kwargs (sanitized): %s", safe_log_kwargs)
         
         try:
-            # Use embed_content for single text or batch embedding
+            # Build the embed_content call kwargs for the new SDK.
+            # The new SDK uses: client.models.embed_content(
+            #     model=..., contents=..., config=EmbedContentConfig(...))
+            model_name = api_kwargs.get("model", "gemini-embedding-001")
+            task_type = api_kwargs.get("task_type")
+
             if "content" in api_kwargs:
-                # Single embedding
-                response = genai.embed_content(**api_kwargs)
+                contents = api_kwargs["content"]
             elif "contents" in api_kwargs:
-                # Batch embedding - Google AI supports batch natively
-                # Copy to avoid mutating the original dict (needed for retries)
-                kwargs = api_kwargs.copy()
-                contents = kwargs.pop("contents")
-                response = genai.embed_content(content=contents, **kwargs)
+                contents = api_kwargs["contents"]
             else:
                 raise ValueError("Either 'content' or 'contents' must be provided")
-                
+
+            embed_config = None
+            if task_type:
+                embed_config = genai_types.EmbedContentConfig(task_type=task_type)
+
+            response = self._client.models.embed_content(
+                model=model_name,
+                contents=contents,
+                config=embed_config,
+            )
             return response
             
         except Exception as e:

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import shutil
+import signal
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,6 +108,7 @@ class ToolRunner:
                         command_str,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
+                        start_new_session=True,
                     )
                 else:
                     parts = command_str.split()
@@ -113,6 +116,7 @@ class ToolRunner:
                         *parts,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
+                        start_new_session=True,
                     )
 
                 try:
@@ -121,7 +125,7 @@ class ToolRunner:
                         timeout=tool.timeout,
                     )
                 except asyncio.TimeoutError:
-                    proc.kill()
+                    await self._kill_process_group(proc)
                     await proc.wait()
                     elapsed = time.monotonic() - start
                     msg = (
@@ -205,6 +209,26 @@ class ToolRunner:
             return_code=return_code,
             duration_seconds=elapsed,
         )
+
+    @staticmethod
+    async def _kill_process_group(proc: asyncio.subprocess.Process) -> None:
+        """Kill the entire process group rooted at *proc*.
+
+        Sends SIGTERM first for graceful shutdown, then SIGKILL after 5s
+        if the group is still alive.  Using process groups (via
+        start_new_session=True) ensures grandchild processes spawned by
+        tools like checkov or trufflehog are also terminated.
+        """
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            return
+        # Give the group a moment to exit cleanly before escalating.
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(proc.pid, signal.SIGKILL)
 
     @staticmethod
     def _collect_dir_output(tool_output_dir: str, output_file: str) -> bool:

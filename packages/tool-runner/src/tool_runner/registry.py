@@ -1,4 +1,4 @@
-"""Tool definitions and registry for 23 static analysis tools."""
+"""Tool definitions and registry for 32 static analysis tools."""
 
 from __future__ import annotations
 
@@ -45,6 +45,7 @@ _SECURITY_TOOLS: list[ToolDefinition] = [
         command_template="bandit -r {target} -f sarif -o {output}",
         sarif_native=True,
         languages=["python"],
+        timeout=600,
     ),
     ToolDefinition(
         name="gosec",
@@ -111,7 +112,28 @@ _SECURITY_TOOLS: list[ToolDefinition] = [
         ),
         sarif_native=False,
         languages=["*"],
-        timeout=600,
+        timeout=900,
+    ),
+    # -- Rust security -------------------------------------------------------
+    ToolDefinition(
+        name="cargo-audit",
+        category="security",
+        install_method="binary",
+        install_package="cargo-audit",
+        command_template="cargo audit --file {target}/Cargo.lock --json > {output}",
+        sarif_native=False,
+        languages=["rust"],
+        timeout=120,
+    ),
+    ToolDefinition(
+        name="cargo-deny",
+        category="security",
+        install_method="binary",
+        install_package="cargo-deny",
+        command_template="cargo deny --manifest-path {target}/Cargo.toml check --format json 2> {output}",
+        sarif_native=False,
+        languages=["rust"],
+        timeout=300,
     ),
 ]
 
@@ -150,11 +172,10 @@ _QUALITY_TOOLS: list[ToolDefinition] = [
         category="quality",
         install_method="binary",
         install_package="cppcheck",
-        command_template=(
-            "cppcheck --enable=all --xml --output-file={output} {target}"
-        ),
-        sarif_native=False,
+        command_template="cppcheck --enable=all --output-format=sarif --output-file={output} {target}",
+        sarif_native=True,
         languages=["c", "cpp"],
+        timeout=900,
     ),
     ToolDefinition(
         name="clang-analyzer",
@@ -181,6 +202,83 @@ _QUALITY_TOOLS: list[ToolDefinition] = [
         sarif_native=True,
         languages=["java"],
         optional=True,
+    ),
+    # -- Rust quality --------------------------------------------------------
+    ToolDefinition(
+        name="clippy",
+        category="quality",
+        install_method="binary",
+        install_package="clippy",
+        command_template=(
+            "cargo clippy --manifest-path {target}/Cargo.toml"
+            " --message-format json -- -W clippy::all 2>&1 > {output}"
+        ),
+        sarif_native=False,
+        languages=["rust"],
+        timeout=600,
+    ),
+    ToolDefinition(
+        name="cargo-udeps",
+        category="quality",
+        install_method="binary",
+        install_package="cargo-udeps",
+        command_template="cargo udeps --manifest-path {target}/Cargo.toml --output json > {output}",
+        sarif_native=False,
+        languages=["rust"],
+        timeout=600,
+    ),
+    # -- LaTeX quality -------------------------------------------------------
+    ToolDefinition(
+        name="chktex",
+        category="quality",
+        install_method="binary",
+        install_package="chktex",
+        command_template="find {target} -name '*.tex' -print0 | xargs -0 chktex -q -v3 > {output}",
+        sarif_native=False,
+        languages=["latex"],
+        timeout=120,
+    ),
+    ToolDefinition(
+        name="lacheck",
+        category="quality",
+        install_method="binary",
+        install_package="lacheck",
+        command_template="find {target} -name '*.tex' -exec lacheck {{}} \\; > {output}",
+        sarif_native=False,
+        languages=["latex"],
+        timeout=120,
+    ),
+    # -- TOML quality --------------------------------------------------------
+    ToolDefinition(
+        name="taplo",
+        category="quality",
+        install_method="binary",
+        install_package="taplo",
+        command_template="taplo lint '{target}/**/*.toml' 2> {output}",
+        sarif_native=False,
+        languages=["toml"],
+        timeout=120,
+    ),
+    # -- Docker / Shell quality ----------------------------------------------
+    ToolDefinition(
+        name="hadolint",
+        category="quality",
+        install_method="binary",
+        install_package="hadolint",
+        command_template="find {target} -name 'Dockerfile*' -print0 | xargs -0 hadolint --format sarif > {output}",
+        sarif_native=True,
+        languages=["docker"],
+        timeout=60,
+    ),
+    ToolDefinition(
+        name="shellcheck",
+        category="quality",
+        install_method="binary",
+        install_package="shellcheck",
+        command_template="find {target} -name '*.sh' -print0 | xargs -0 shellcheck --format json > {output}",
+        sarif_native=False,
+        languages=["shell"],
+        timeout=120,
     ),
 ]
 
@@ -231,7 +329,7 @@ _SECRETS_TOOLS: list[ToolDefinition] = [
         ),
         sarif_native=True,
         languages=["terraform", "yaml", "json", "docker"],
-        timeout=600,
+        timeout=900,
     ),
     ToolDefinition(
         name="kics",
@@ -265,6 +363,7 @@ _SECRETS_TOOLS: list[ToolDefinition] = [
         ),
         sarif_native=False,
         languages=["*"],
+        timeout=600,
     ),
     ToolDefinition(
         name="detect-secrets",
@@ -292,7 +391,7 @@ _SECRETS_TOOLS: list[ToolDefinition] = [
 
 
 class ToolRegistry:
-    """Central registry that holds all 23 tool definitions."""
+    """Central registry that holds all 32 tool definitions."""
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolDefinition] = {}

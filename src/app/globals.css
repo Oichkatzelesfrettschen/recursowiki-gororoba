@@ -15,6 +15,9 @@
   --highlight: #e8927c; /* Soft coral (Akane) */
   --muted: #a59e8c; /* Soft gray-brown (Nezumi) */
   --link-color: #7c5aa0; /* Slightly darker purple for links */
+  --severity-error: #dc3545;
+  --severity-warning: #e8927c;
+  --severity-note: #9b7cb9;
 }
 
 html[data-theme='dark'] {
@@ -29,6 +32,9 @@ html[data-theme='dark'] {
   --highlight: #e57373; /* Soft red */
   --muted: #8c8c8c; /* Muted gray */
   --link-color: #b19cd9; /* Lighter purple for dark mode links */
+  --severity-error: #e57373;
+  --severity-warning: #ffb74d;
+  --severity-note: #9370db;
 }
 
 /* Fix for unreadable <select> options in Chrome's dark mode */
@@ -148,4 +154,30 @@ html[data-theme='dark'] .paper-texture {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+/* Severity badge pills */
+.severity-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+}
+
+.severity-badge-error {
+  background-color: color-mix(in srgb, var(--severity-error) 15%, transparent);
+  color: var(--severity-error);
+}
+
+.severity-badge-warning {
+  background-color: color-mix(in srgb, var(--severity-warning) 15%, transparent);
+  color: var(--severity-warning);
+}
+
+.severity-badge-note {
+  background-color: color-mix(in srgb, var(--severity-note) 15%, transparent);
+  color: var(--severity-note);
 }

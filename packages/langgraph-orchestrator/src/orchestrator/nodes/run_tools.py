@@ -9,6 +9,7 @@ import tempfile
 
 from tool_runner.registry import ToolRegistry
 from tool_runner.runner import ToolRunner
+from tool_runner.provisioner import ToolProvisioner
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,13 @@ async def _run_tools_async(
     if not tools:
         logger.warning("No tools to run")
         return {}
+
+    # Provision missing binary tools before execution
+    provisioner = ToolProvisioner()
+    binary_names = [t.name for t in tools if t.install_method == "binary"]
+    if binary_names:
+        logger.info("Provisioning %d binary tools", len(binary_names))
+        await provisioner.provision_all(binary_names)
 
     results = await runner.run_tools(tools, target_path, output_dir)
     return {r.tool_name: r.__dict__ for r in results}

@@ -44,18 +44,58 @@ RUN mkdir -p api packages/tool-runner/src/tool_runner \
     packages/langgraph-orchestrator/src/orchestrator/__init__.py
 RUN uv sync --frozen --no-dev --no-editable
 
+# ---------------------------------------------------------------------------
+# Binary analysis tools -- downloaded once, copied into final image
+# ---------------------------------------------------------------------------
+
+# kics no longer ships standalone binaries; extract from official Docker image
+FROM checkmarx/kics:v2.1.19-alpine AS kics_source
+
+FROM python:3.11-slim AS tool_binaries
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates unzip default-jre-headless cppcheck \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tools
+
+# trivy 0.58.2
+RUN curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.58.2/trivy_0.58.2_Linux-64bit.tar.gz \
+    | tar xz -C /usr/local/bin trivy
+
+# kics -- no longer ships binaries, built in final stage from Docker image
+
+# trufflehog 3.88.4
+RUN curl -fsSL https://github.com/trufflesecurity/trufflehog/releases/download/v3.88.4/trufflehog_3.88.4_linux_amd64.tar.gz \
+    | tar xz -C /usr/local/bin trufflehog
+
+# horusec 2.9.0-beta.3
+RUN curl -fsSL https://raw.githubusercontent.com/ZUP-Products/horusec/main/deployments/scripts/install.sh | bash -s latest \
+    && cp /usr/local/bin/horusec /tools/horusec 2>/dev/null || true
+
+# gosec 2.21.4
+RUN curl -fsSL https://github.com/securego/gosec/releases/download/v2.21.4/gosec_2.21.4_linux_amd64.tar.gz \
+    | tar xz -C /usr/local/bin gosec
+
+# pmd 7.9.0
+RUN curl -fsSL -o /tmp/pmd.zip "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.9.0/pmd-dist-7.9.0-bin.zip" \
+    && unzip -q /tmp/pmd.zip -d /opt \
+    && ln -s /opt/pmd-bin-7.9.0/bin/pmd /usr/local/bin/pmd \
+    && rm /tmp/pmd.zip
+
 # Use Python 3.11 as final image
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install Node.js and npm
+# Install Node.js, runtime deps for analysis tools (JRE for PMD, cppcheck)
 RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     git \
     ca-certificates \
+    default-jre-headless \
+    cppcheck \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
@@ -63,6 +103,17 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y nodejs \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy binary analysis tools from tool_binaries stage
+COPY --from=tool_binaries /usr/local/bin/trivy /usr/local/bin/trivy
+COPY --from=kics_source /app/bin/kics /usr/local/bin/kics
+COPY --from=kics_source /app/bin/assets /opt/kics/assets
+COPY --from=tool_binaries /usr/local/bin/trufflehog /usr/local/bin/trufflehog
+COPY --from=tool_binaries /usr/local/bin/gosec /usr/local/bin/gosec
+COPY --from=tool_binaries /opt/pmd-bin-7.9.0 /opt/pmd-bin-7.9.0
+RUN ln -sf /opt/pmd-bin-7.9.0/bin/pmd /usr/local/bin/pmd
+# horusec may fail to install in some environments; copy if present
+COPY --from=tool_binaries /usr/local/bin/horusec /usr/local/bin/horusec
 
 # Update certificates if custom ones were provided and copied successfully
 RUN if [ -n "${CUSTOM_CERT_DIR}" ]; then \
@@ -82,6 +133,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=py_deps /build/.venv /opt/venv
 COPY api/ ./api/
 COPY packages/ ./packages/
+COPY tools.toml ./tools.toml
 
 # Copy Node app
 COPY --from=node_builder /app/public ./public

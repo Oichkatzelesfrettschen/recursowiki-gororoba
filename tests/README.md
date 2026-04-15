@@ -62,7 +62,7 @@ python tests/api/test_api.py
 All test dependencies are included in the main project requirements:
 - `python-dotenv`: For loading environment variables
 - `adalflow`: Core framework for embeddings
-- `google-generativeai`: Google AI API client
+- `google-genai`: Google AI API client
 - `requests`: For API testing
 
 ## Test Categories

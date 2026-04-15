@@ -3,7 +3,8 @@ import os
 from typing import List, Optional, Dict, Any
 from urllib.parse import unquote
 
-import google.generativeai as genai
+from google.genai import types as genai_types
+from api.genai_client import get_client
 from adalflow.components.model_client.ollama_client import OllamaClient
 from adalflow.core.types import ModelType
 from fastapi import WebSocket, WebSocketDisconnect, HTTPException
@@ -561,15 +562,8 @@ This file contains...
                 model_type=ModelType.LLM
             )
         else:
-            # Initialize Google Generative AI model
-            model = genai.GenerativeModel(
-                model_name=model_config["model"],
-                generation_config={
-                    "temperature": model_config["temperature"],
-                    "top_p": model_config["top_p"],
-                    "top_k": model_config["top_k"]
-                }
-            )
+            # Google Generative AI (default provider) -- handled inline below
+            pass
 
         # Process the response based on the provider
         try:
@@ -706,9 +700,18 @@ This file contains...
                     await websocket.close()
             else:
                 # Google Generative AI (default provider)
-                response = model.generate_content(prompt, stream=True)
+                client = get_client()
+                response = client.models.generate_content_stream(
+                    model=model_config["model"],
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        temperature=model_config["temperature"],
+                        top_p=model_config["top_p"],
+                        top_k=model_config["top_k"],
+                    ),
+                )
                 for chunk in response:
-                    if hasattr(chunk, 'text'):
+                    if chunk.text:
                         await websocket.send_text(chunk.text)
                 await websocket.close()
 
@@ -878,20 +881,18 @@ This file contains...
                     else:
                         # Google Generative AI fallback (default provider)
                         model_config = get_model_config(request.provider, request.model)
-                        fallback_model = genai.GenerativeModel(
-                            model_name=model_config["model_kwargs"]["model"],
-                            generation_config={
-                                "temperature": model_config["model_kwargs"].get("temperature", 0.7),
-                                "top_p": model_config["model_kwargs"].get("top_p", 0.8),
-                                "top_k": model_config["model_kwargs"].get("top_k", 40),
-                            },
-                        )
-
-                        fallback_response = fallback_model.generate_content(
-                            simplified_prompt, stream=True
+                        fb_client = get_client()
+                        fallback_response = fb_client.models.generate_content_stream(
+                            model=model_config["model_kwargs"]["model"],
+                            contents=simplified_prompt,
+                            config=genai_types.GenerateContentConfig(
+                                temperature=model_config["model_kwargs"].get("temperature", 0.7),
+                                top_p=model_config["model_kwargs"].get("top_p", 0.8),
+                                top_k=model_config["model_kwargs"].get("top_k", 40),
+                            ),
                         )
                         for chunk in fallback_response:
-                            if hasattr(chunk, "text"):
+                            if chunk.text:
                                 await websocket.send_text(chunk.text)
                 except Exception as e2:
                     logger.error(f"Error in fallback streaming response: {str(e2)}")

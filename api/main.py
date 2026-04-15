@@ -50,12 +50,12 @@ if missing_vars:
     logger.warning(f"Missing environment variables: {', '.join(missing_vars)}")
     logger.warning("Some functionality may not work correctly without these variables.")
 
-# Configure Google Generative AI
-import google.generativeai as genai
+# Initialize Google GenAI client (reads GOOGLE_API_KEY from env)
+from api.genai_client import get_client
 from api.config import GOOGLE_API_KEY
 
 if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
+    get_client()  # force initialization at startup
 else:
     logger.warning("GOOGLE_API_KEY not configured")
 

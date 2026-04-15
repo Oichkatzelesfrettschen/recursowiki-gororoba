@@ -36,6 +36,7 @@ NATIVE_SARIF_TOOLS: frozenset[str] = frozenset(
         "slither",
         "ggshield",
         "eslint",
+        "hadolint",
     }
 )
 # horusec intentionally excluded: its SARIF output is non-standard,
@@ -59,6 +60,7 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "slither": "sast",
     "ggshield": "secret-detection",
     "eslint": "linter",
+    "hadolint": "linter",
 }
 
 

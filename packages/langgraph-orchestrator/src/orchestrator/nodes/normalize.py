@@ -76,6 +76,14 @@ def _get_converter(tool_name: str):
         "phpcs": "sarif_normalizer.converters.phpcs",
         "deptrac": "sarif_normalizer.converters.deptrac",
         "horusec": "sarif_normalizer.converters.horusec",
+        "clippy": "sarif_normalizer.converters.clippy",
+        "cargo-audit": "sarif_normalizer.converters.cargo_audit",
+        "cargo-deny": "sarif_normalizer.converters.cargo_deny",
+        "cargo-udeps": "sarif_normalizer.converters.cargo_udeps",
+        "chktex": "sarif_normalizer.converters.chktex",
+        "lacheck": "sarif_normalizer.converters.lacheck",
+        "taplo": "sarif_normalizer.converters.taplo",
+        "shellcheck": "sarif_normalizer.converters.shellcheck",
     }
     module_path = converter_map.get(tool_name)
     if module_path is None:

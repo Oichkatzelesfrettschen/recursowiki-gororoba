@@ -5,9 +5,15 @@ const TARGET_SERVER_BASE_URL = process.env.SERVER_BASE_URL || 'http://localhost:
 const nextConfig: NextConfig = {
   /* config options here */
   output: 'standalone',
+  transpilePackages: ['@tanstack/react-table', '@tanstack/table-core'],
   // Optimize build for Docker
   experimental: {
-    optimizePackageImports: ['@mermaid-js/mermaid', 'react-syntax-highlighter'],
+    optimizePackageImports: [
+      '@mermaid-js/mermaid',
+      'react-syntax-highlighter',
+      'recharts',
+      '@xyflow/react',
+    ],
   },
   // Reduce memory usage during build
   webpack: (config, { isServer }) => {
@@ -50,6 +56,14 @@ const nextConfig: NextConfig = {
       {
         source: '/local_repo/structure',
         destination: `${TARGET_SERVER_BASE_URL}/local_repo/structure`,
+      },
+      {
+        source: '/api/analyze/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/api/analyze/:path*`,
+      },
+      {
+        source: '/api/analyze',
+        destination: `${TARGET_SERVER_BASE_URL}/api/analyze`,
       },
       {
         source: '/api/auth/status',

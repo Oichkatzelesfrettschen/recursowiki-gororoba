@@ -18,12 +18,15 @@ LANGUAGE_TOOL_MAP: dict[str, list[str]] = {
     "cpp": ["semgrep", "cppcheck", "clang-sa", "lizard", "detect-secrets"],
     "ruby": ["semgrep", "brakeman", "lizard", "detect-secrets", "trivy"],
     "php": ["semgrep", "phpcs", "deptrac", "lizard", "detect-secrets"],
-    "rust": ["semgrep", "lizard", "detect-secrets", "trivy"],
+    "rust": ["semgrep", "clippy", "cargo-audit", "cargo-deny", "cargo-udeps", "lizard", "detect-secrets", "trivy"],
     "csharp": ["semgrep", "lizard", "detect-secrets"],
     "solidity": ["slither", "detect-secrets"],
     "terraform": ["checkov", "kics", "trivy"],
-    "docker": ["checkov", "trivy", "kics"],
+    "docker": ["hadolint", "checkov", "trivy", "kics"],
     "yaml": ["checkov", "kics"],
+    "latex": ["chktex", "lacheck"],
+    "toml": ["taplo"],
+    "shell": ["shellcheck", "detect-secrets"],
 }
 
 # Tools that run regardless of language

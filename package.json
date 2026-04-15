@@ -18,9 +18,12 @@
     "react-icons": "^5.5.0",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^15.6.1",
+    "recharts": "^2.15.0",
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
-    "svg-pan-zoom": "^3.6.2"
+    "svg-pan-zoom": "^3.6.2",
+    "@xyflow/react": "^12.6.0",
+    "@tanstack/react-table": "^8.21.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
